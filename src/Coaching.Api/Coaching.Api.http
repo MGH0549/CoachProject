@@ -1,0 +1,728 @@
+# Start from the solution root:
+# dotnet run --project src/Coaching.Api --launch-profile https
+# Open this file in Visual Studio or a client supporting .http named-request response variables.
+# Send requests individually in order. DO NOT use Run All: optional requests mutate or delete data.
+# Apply database migrations before registering; initialize the coach before coachLogin.
+# Replace coach credentials below and use a unique test client email on the first registration.
+# Re-run the relevant login if its 15-minute access token expires.
+# Trust the local HTTPS certificate with: dotnet dev-certs https --trust
+
+@baseUrl = https://localhost:7443
+@apiUrl = {{baseUrl}}/api/v1
+@angularOrigin = https://localhost:4200
+@coachEmail = REPLACE_WITH_COACH_EMAIL
+@coachPassword = REPLACE_WITH_COACH_PASSWORD
+@clientEmail = client.http@example.test
+@clientPassword = Http-Test-Password-812!
+@mainYouTubeVideoId = REPLACE_ID1
+@alternativeYouTubeVideoId = REPLACE_ID2
+# Replace the two video placeholders with real 11-character YouTube video IDs.
+@accessEndDate = 2027-01-31
+@extendedEndDate = 2027-02-28
+# Keep both access dates in the future, with extendedEndDate later than accessEndDate.
+# For refresh/logout, paste ONLY the coaching.refresh=name-value pair from clientLogin's Set-Cookie.
+# Example shape: coaching.refresh=TOKEN_VALUE (omit Path, Expires, Secure, and HttpOnly).
+# Refresh rotates the cookie: update this variable after EVERY successful refresh.
+@clientRefreshCookie = coaching.refresh=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJkZDU3MGU3Yi1jYTQ5LTQ5MDMtODU3Ni1lYmQ5NDA2MTNkZmUiLCJqdGkiOiIyODU4YmVmYi1iNjQwLTQ1OTAtODY4Ny04OGQ1MGQxOTFmODIiLCJzdGFtcCI6IjdWRjNGT1RaRldLQU5CUzRXTkFUUU5QNVVHV1pFVVRIIiwiaHR0cDovL3NjaGVtYXMubWljcm9zb2Z0LmNvbS93cy8yMDA4LzA2L2lkZW50aXR5L2NsYWltcy9yb2xlIjoiQ2xpZW50IiwibmJmIjoxNzk0MzMzNjU3LCJleHAiOjE3OTQzMzQ1NTcsImlzcyI6IkNvYWNoaW5nLkFwaSIsImF1ZCI6IkNvYWNoaW5nLkFuZ3VsYXIifQ.LXQu5hCX6dGsRDDoXz3777dlvgQeZFrVSWkWDNLP4ZM
+@passwordResetToken = REPLACE_WITH_TOKEN_FROM_RESET_EMAIL
+@newClientPassword = New-Http-Password-812!
+
+### Database health (200 when the configured database is available)
+# @name health
+GET {{baseUrl}}/health
+Accept: application/json
+
+### Public metadata: display timezone and privacy policy URL
+# @name metadata
+GET {{apiUrl}}/metadata
+Accept: application/json
+
+### OpenAPI document (coach authorization is required outside Development)
+# @name openApi
+GET {{baseUrl}}/openapi/v1.json
+Accept: application/json
+
+### Register a test client as Pending (409 if this email already exists)
+# @name registerClient
+POST {{apiUrl}}/auth/register
+Content-Type: application/json
+X-Coaching-Client: Angular
+Origin: {{angularOrigin}}
+
+{
+  "email": "{{clientEmail}}",
+  "password": "{{clientPassword}}",
+  "fullName": "client1",
+  "whatsAppNumber": "201000000001",
+  "consent": true
+}
+
+### Client login: subsequent client requests reference this access token
+# @name clientLogin
+POST {{apiUrl}}/auth/login
+Content-Type: application/json
+X-Coaching-Client: Angular
+Origin: {{angularOrigin}}
+
+{
+  "email": "{{clientEmail}}",
+  "password": "{{clientPassword}}"
+}
+
+### Client account: subsequent requests reference account.id and account.rowVersion
+# @name clientAccount
+GET {{apiUrl}}/me
+Authorization: Bearer {{clientLogin.response.body.$.accessToken}}
+Accept: application/json
+
+### Pending access check (expected 403 before the coach activates this client)
+# @name pendingTrainingCheck
+GET {{apiUrl}}/me/training
+Authorization: Bearer {{clientLogin.response.body.$.accessToken}}
+Accept: application/json
+
+### Coach login: use the coach created by the --initialize command
+# @name coachLogin
+POST {{apiUrl}}/auth/login
+Content-Type: application/json
+X-Coaching-Client: Angular
+Origin: {{angularOrigin}}
+
+{
+  "email": "{{coachEmail}}",
+  "password": "{{coachPassword}}"
+}
+
+### List clients (status: Pending, Active, Expired, or Deactivated)
+# @name listClients
+GET {{apiUrl}}/coach/clients?page=1&size=20&status=Pending&search={{clientEmail}}
+Authorization: Bearer {{coachLogin.response.body.$.accessToken}}
+Accept: application/json
+
+### Activate the test client; endDate is a Cairo calendar date
+# @name activateClient
+POST {{apiUrl}}/coach/clients/{{clientAccount.response.body.$.account.id}}/activate
+Authorization: Bearer {{coachLogin.response.body.$.accessToken}}
+Content-Type: application/json
+
+{
+  "package": "باقة اختبار",
+  "endDate": "{{accessEndDate}}",
+  "rowVersion": "{{clientAccount.response.body.$.account.rowVersion}}"
+}
+
+### Create the main library exercise
+# @name createExercise
+POST {{apiUrl}}/coach/exercises
+Authorization: Bearer {{coachLogin.response.body.$.accessToken}}
+Content-Type: application/json
+
+{
+  "name": "ضغط الصدر - اختبار HTTP",
+  "muscleGroup": "الصدر",
+  "youTubeVideoId": "{{mainYouTubeVideoId}}",
+  "notes": "استخدم فيديو يوتيوب للتمرين؛ المعرف يجب أن يكون 11 حرفاً",
+  "archived": false,
+  "rowVersion": null
+}
+
+### Create an alternative library exercise (set both YouTube IDs to real 11-character IDs)
+# @name createAlternativeExercise
+POST {{apiUrl}}/coach/exercises
+Authorization: Bearer {{coachLogin.response.body.$.accessToken}}
+Content-Type: application/json
+
+{
+  "name": "ضغط الصدر بالدمبل - اختبار HTTP",
+  "muscleGroup": "الصدر",
+  "youTubeVideoId": "{{alternativeYouTubeVideoId}}",
+  "notes": "بديل عند انشغال الجهاز",
+  "archived": false,
+  "rowVersion": null
+}
+
+### Search the exercise library
+# @name listExercises
+GET {{apiUrl}}/coach/exercises?page=1&size=20&archived=false
+Authorization: Bearer {{coachLogin.response.body.$.accessToken}}
+Accept: application/json
+
+### Update the main exercise; use the last returned rowVersion on subsequent edits
+# @name updateExercise
+PUT {{apiUrl}}/coach/exercises/{{createExercise.response.body.$.id}}
+Authorization: Bearer {{coachLogin.response.body.$.accessToken}}
+Content-Type: application/json
+
+{
+  "name": "ضغط الصدر - اختبار HTTP",
+  "muscleGroup": "الصدر",
+  "youTubeVideoId": "{{mainYouTubeVideoId}}",
+  "notes": "حافظ على التحكم في الحركة",
+  "archived": false,
+  "rowVersion": "{{createExercise.response.body.$.rowVersion}}"
+}
+
+### Create a reusable training template
+# @name createTrainingTemplate
+POST {{apiUrl}}/coach/training-plans
+Authorization: Bearer {{coachLogin.response.body.$.accessToken}}
+Content-Type: application/json
+
+{
+  "clientId": null,
+  "isTemplate": true,
+  "name": "قالب تدريب HTTP",
+  "choicesLocked": false,
+  "days": [
+    {
+      "name": "دفع",
+      "exercises": [
+        {
+          "exerciseId": "{{createExercise.response.body.$.id}}",
+          "sets": 3,
+          "reps": "8-12",
+          "restSeconds": 90,
+          "tempo": "3-1-1",
+          "note": "اختر التمرين الأساسي أو البديل",
+          "choiceLocked": false,
+          "selectedAlternative": null,
+          "alternatives": [
+            {
+              "exerciseId": "{{createAlternativeExercise.response.body.$.id}}",
+              "sets": null,
+              "reps": null,
+              "note": "استخدمه عند انشغال الجهاز"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "rowVersion": null
+}
+
+### Update a training template (replaces its child structure)
+# @name updateTrainingTemplate
+PUT {{apiUrl}}/coach/training-plans/{{createTrainingTemplate.response.body.$.id}}
+Authorization: Bearer {{coachLogin.response.body.$.accessToken}}
+Content-Type: application/json
+
+{
+  "clientId": null,
+  "isTemplate": true,
+  "name": "قالب تدريب HTTP المعدل",
+  "choicesLocked": false,
+  "days": [
+    {
+      "name": "دفع",
+      "exercises": [
+        {
+          "exerciseId": "{{createExercise.response.body.$.id}}",
+          "sets": 4,
+          "reps": "8-12",
+          "restSeconds": 90,
+          "tempo": "3-1-1",
+          "note": null,
+          "choiceLocked": false,
+          "selectedAlternative": null,
+          "alternatives": [
+            {
+              "exerciseId": "{{createAlternativeExercise.response.body.$.id}}",
+              "sets": 3,
+              "reps": "10-12",
+              "note": "بديل مع مجموعات وتكرارات مخصصة"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "rowVersion": "{{createTrainingTemplate.response.body.$.rowVersion}}"
+}
+
+### List training templates
+# @name listTrainingTemplates
+GET {{apiUrl}}/coach/templates/training?page=1&size=20
+Authorization: Bearer {{coachLogin.response.body.$.accessToken}}
+Accept: application/json
+
+### Read the training template
+# @name trainingTemplate
+GET {{apiUrl}}/coach/templates/training/{{createTrainingTemplate.response.body.$.id}}
+Authorization: Bearer {{coachLogin.response.body.$.accessToken}}
+Accept: application/json
+
+### Copy the template to the client (null version only when no assigned plan exists)
+# To replace an existing plan, set existingPlanVersion to its latest rowVersion.
+# @name assignTraining
+POST {{apiUrl}}/coach/templates/training/{{createTrainingTemplate.response.body.$.id}}/copy
+Authorization: Bearer {{coachLogin.response.body.$.accessToken}}
+Content-Type: application/json
+
+{
+  "clientId": "{{clientAccount.response.body.$.account.id}}",
+  "existingPlanVersion": null
+}
+
+### Read the client's training plan
+# @name clientTraining
+GET {{apiUrl}}/me/training
+Authorization: Bearer {{clientLogin.response.body.$.accessToken}}
+Accept: application/json
+
+### Client chooses an exercise alternative
+# @name chooseExercise
+PUT {{apiUrl}}/me/training/exercises/{{clientTraining.response.body.$.days[0].exercises[0].id}}/selection
+Authorization: Bearer {{clientLogin.response.body.$.accessToken}}
+Content-Type: application/json
+
+{
+  "alternativeId": "{{clientTraining.response.body.$.days[0].exercises[0].alternatives[0].id}}",
+  "rowVersion": "{{clientTraining.response.body.$.days[0].exercises[0].rowVersion}}"
+}
+
+### Coach reads the client's training plan
+# @name coachTraining
+GET {{apiUrl}}/coach/clients/{{clientAccount.response.body.$.account.id}}/training
+Authorization: Bearer {{coachLogin.response.body.$.accessToken}}
+Accept: application/json
+
+### Coach locks one exercise choice (use false to unlock with the latest version)
+# @name lockExercise
+PUT {{apiUrl}}/coach/clients/{{clientAccount.response.body.$.account.id}}/training/exercises/{{coachTraining.response.body.$.days[0].exercises[0].id}}/lock
+Authorization: Bearer {{coachLogin.response.body.$.accessToken}}
+Content-Type: application/json
+
+{
+  "locked": true,
+  "rowVersion": "{{coachTraining.response.body.$.days[0].exercises[0].rowVersion}}"
+}
+
+### Coach locks choices across the entire training plan
+# @name lockTraining
+PUT {{apiUrl}}/coach/clients/{{clientAccount.response.body.$.account.id}}/training/lock
+Authorization: Bearer {{coachLogin.response.body.$.accessToken}}
+Content-Type: application/json
+
+{
+  "locked": true,
+  "rowVersion": "{{lockExercise.response.body.$.rowVersion}}"
+}
+
+### Coach can change a locked choice; null selects the main exercise
+# @name coachChooseExercise
+PUT {{apiUrl}}/coach/clients/{{clientAccount.response.body.$.account.id}}/training/exercises/{{lockTraining.response.body.$.days[0].exercises[0].id}}/selection
+Authorization: Bearer {{coachLogin.response.body.$.accessToken}}
+Content-Type: application/json
+
+{
+  "alternativeId": null,
+  "rowVersion": "{{lockTraining.response.body.$.days[0].exercises[0].rowVersion}}"
+}
+
+### Log the selected main exercise; a locked plan requires the coach's chosen version
+# @name logWorkout
+POST {{apiUrl}}/me/workouts
+Authorization: Bearer {{clientLogin.response.body.$.accessToken}}
+Content-Type: application/json
+
+{
+  "planExerciseId": "{{coachChooseExercise.response.body.$.days[0].exercises[0].id}}",
+  "alternativeId": null
+}
+
+### Create a reusable diet template, with two options for its meal
+# @name createDietTemplate
+POST {{apiUrl}}/coach/diet-plans
+Authorization: Bearer {{coachLogin.response.body.$.accessToken}}
+Content-Type: application/json
+
+{
+  "clientId": null,
+  "isTemplate": true,
+  "name": "قالب غذاء HTTP",
+  "calories": 500,
+  "protein": 30,
+  "carbs": 60,
+  "fat": 15,
+  "choicesLocked": false,
+  "meals": [
+    {
+      "name": "الإفطار",
+      "time": "09:00:00",
+      "locked": false,
+      "selectedOption": 0,
+      "options": [
+        {
+          "name": "الخيار الأول",
+          "calories": 500,
+          "protein": 30,
+          "carbs": 60,
+          "fat": 15,
+          "items": [
+            { "food": "شوفان", "quantity": 60, "unit": "جرام" },
+            { "food": "زبادي", "quantity": 200, "unit": "جرام" }
+          ]
+        },
+        {
+          "name": "الخيار الثاني",
+          "calories": 500,
+          "protein": 30,
+          "carbs": 60,
+          "fat": 15,
+          "items": [
+            { "food": "بيض", "quantity": 2, "unit": "حبة" },
+            { "food": "خبز", "quantity": 80, "unit": "جرام" }
+          ]
+        }
+      ]
+    }
+  ],
+  "rowVersion": null
+}
+
+### Update a diet template (replaces its child structure)
+# @name updateDietTemplate
+PUT {{apiUrl}}/coach/diet-plans/{{createDietTemplate.response.body.$.id}}
+Authorization: Bearer {{coachLogin.response.body.$.accessToken}}
+Content-Type: application/json
+
+{
+  "clientId": null,
+  "isTemplate": true,
+  "name": "قالب غذاء HTTP المعدل",
+  "calories": 500,
+  "protein": 30,
+  "carbs": 60,
+  "fat": 15,
+  "choicesLocked": false,
+  "meals": [
+    {
+      "name": "الإفطار",
+      "time": "09:30:00",
+      "locked": false,
+      "selectedOption": 0,
+      "options": [
+        {
+          "name": "الخيار الأول",
+          "calories": 500,
+          "protein": 30,
+          "carbs": 60,
+          "fat": 15,
+          "items": [{ "food": "وجبة اختبار أولى", "quantity": 1, "unit": "وجبة" }]
+        },
+        {
+          "name": "الخيار الثاني",
+          "calories": 500,
+          "protein": 30,
+          "carbs": 60,
+          "fat": 15,
+          "items": [{ "food": "وجبة اختبار ثانية", "quantity": 1, "unit": "وجبة" }]
+        }
+      ]
+    }
+  ],
+  "rowVersion": "{{createDietTemplate.response.body.$.rowVersion}}"
+}
+
+### List diet templates
+# @name listDietTemplates
+GET {{apiUrl}}/coach/templates/diet?page=1&size=20
+Authorization: Bearer {{coachLogin.response.body.$.accessToken}}
+Accept: application/json
+
+### Read the diet template
+# @name dietTemplate
+GET {{apiUrl}}/coach/templates/diet/{{createDietTemplate.response.body.$.id}}
+Authorization: Bearer {{coachLogin.response.body.$.accessToken}}
+Accept: application/json
+
+### Copy the diet template to the client
+# To replace an existing plan, set existingPlanVersion to its latest rowVersion.
+# @name assignDiet
+POST {{apiUrl}}/coach/templates/diet/{{createDietTemplate.response.body.$.id}}/copy
+Authorization: Bearer {{coachLogin.response.body.$.accessToken}}
+Content-Type: application/json
+
+{
+  "clientId": "{{clientAccount.response.body.$.account.id}}",
+  "existingPlanVersion": null
+}
+
+### Read the client's diet, options, saved selections, and selected daily total
+# @name clientDiet
+GET {{apiUrl}}/me/diet
+Authorization: Bearer {{clientLogin.response.body.$.accessToken}}
+Accept: application/json
+
+### Client chooses the second meal option
+# @name chooseMeal
+PUT {{apiUrl}}/me/diet/meals/{{clientDiet.response.body.$.meals[0].id}}/selection
+Authorization: Bearer {{clientLogin.response.body.$.accessToken}}
+Content-Type: application/json
+
+{
+  "optionId": "{{clientDiet.response.body.$.meals[0].options[1].id}}",
+  "rowVersion": "{{clientDiet.response.body.$.meals[0].rowVersion}}"
+}
+
+### Coach reads the client's diet
+# @name coachDiet
+GET {{apiUrl}}/coach/clients/{{clientAccount.response.body.$.account.id}}/diet
+Authorization: Bearer {{coachLogin.response.body.$.accessToken}}
+Accept: application/json
+
+### Coach locks one meal selection
+# @name lockMeal
+PUT {{apiUrl}}/coach/clients/{{clientAccount.response.body.$.account.id}}/diet/meals/{{coachDiet.response.body.$.meals[0].id}}/lock
+Authorization: Bearer {{coachLogin.response.body.$.accessToken}}
+Content-Type: application/json
+
+{
+  "locked": true,
+  "rowVersion": "{{coachDiet.response.body.$.meals[0].rowVersion}}"
+}
+
+### Coach locks selections across the entire diet
+# @name lockDiet
+PUT {{apiUrl}}/coach/clients/{{clientAccount.response.body.$.account.id}}/diet/lock
+Authorization: Bearer {{coachLogin.response.body.$.accessToken}}
+Content-Type: application/json
+
+{
+  "locked": true,
+  "rowVersion": "{{lockMeal.response.body.$.rowVersion}}"
+}
+
+### Coach changes a locked meal back to the first option
+# @name coachChooseMeal
+PUT {{apiUrl}}/coach/clients/{{clientAccount.response.body.$.account.id}}/diet/meals/{{lockDiet.response.body.$.meals[0].id}}/selection
+Authorization: Bearer {{coachLogin.response.body.$.accessToken}}
+Content-Type: application/json
+
+{
+  "optionId": "{{lockDiet.response.body.$.meals[0].options[0].id}}",
+  "rowVersion": "{{lockDiet.response.body.$.meals[0].rowVersion}}"
+}
+
+### Submit a check-in; energy must be 1-10
+# @name submitCheckIn
+POST {{apiUrl}}/me/check-ins
+Authorization: Bearer {{clientLogin.response.body.$.accessToken}}
+Content-Type: application/json
+
+{
+  "weight": 80.5,
+  "waist": 85,
+  "chest": 100,
+  "hips": 95,
+  "energy": 7,
+  "notes": "متابعة اختبار HTTP"
+}
+
+### Coach adds feedback before uploading photos (photo uploads also advance the check-in version)
+# @name addFeedback
+PUT {{apiUrl}}/coach/clients/{{clientAccount.response.body.$.account.id}}/check-ins/{{submitCheckIn.response.body.$.id}}/feedback
+Authorization: Bearer {{coachLogin.response.body.$.accessToken}}
+Content-Type: application/json
+
+{
+  "feedback": "استمر على الخطة",
+  "rowVersion": "{{submitCheckIn.response.body.$.rowVersion}}"
+}
+
+### Client progress, workout totals, and coach feedback (defaults to the last 90 days)
+# Optional query parameters: from=yyyy-MM-dd&to=yyyy-MM-dd (maximum 366 days).
+# @name clientProgress
+GET {{apiUrl}}/me/progress?page=1&size=20
+Authorization: Bearer {{clientLogin.response.body.$.accessToken}}
+Accept: application/json
+
+### Coach reads the client's progress
+# @name coachProgress
+GET {{apiUrl}}/coach/clients/{{clientAccount.response.body.$.account.id}}/progress?page=1&size=20
+Authorization: Bearer {{coachLogin.response.body.$.accessToken}}
+Accept: application/json
+
+### Client data export (also available after account expiry/deactivation)
+# @name clientExport
+GET {{apiUrl}}/me/export
+Authorization: Bearer {{clientLogin.response.body.$.accessToken}}
+Accept: application/json
+
+### Coach data export
+# @name coachExport
+GET {{apiUrl}}/coach/clients/{{clientAccount.response.body.$.account.id}}/export
+Authorization: Bearer {{coachLogin.response.body.$.accessToken}}
+Accept: application/json
+
+### Role authorization check (expected 403: a client cannot list other clients)
+# @name clientCannotListClients
+GET {{apiUrl}}/coach/clients?page=1&size=20
+Authorization: Bearer {{clientLogin.response.body.$.accessToken}}
+Accept: application/json
+
+### Fresh account version before testing access changes
+# @name accountBeforeAccessChanges
+GET {{apiUrl}}/me
+Authorization: Bearer {{clientLogin.response.body.$.accessToken}}
+Accept: application/json
+
+### Extend client access; the new date must be later than the current end date
+# @name extendClient
+POST {{apiUrl}}/coach/clients/{{clientAccount.response.body.$.account.id}}/extend
+Authorization: Bearer {{coachLogin.response.body.$.accessToken}}
+Content-Type: application/json
+
+{
+  "endDate": "{{extendedEndDate}}",
+  "rowVersion": "{{accountBeforeAccessChanges.response.body.$.account.rowVersion}}"
+}
+
+### Deactivate the test client
+# @name deactivateClient
+POST {{apiUrl}}/coach/clients/{{clientAccount.response.body.$.account.id}}/deactivate
+Authorization: Bearer {{coachLogin.response.body.$.accessToken}}
+Content-Type: application/json
+
+{
+  "rowVersion": "{{extendClient.response.body.$.rowVersion}}"
+}
+
+### Deactivated access check (expected 403 even with the same JWT)
+# @name deactivatedAccessCheck
+GET {{apiUrl}}/me/progress
+Authorization: Bearer {{clientLogin.response.body.$.accessToken}}
+Accept: application/json
+
+### Reactivate the test client before any optional photo requests
+# @name reactivateClient
+POST {{apiUrl}}/coach/clients/{{clientAccount.response.body.$.account.id}}/activate
+Authorization: Bearer {{coachLogin.response.body.$.accessToken}}
+Content-Type: application/json
+
+{
+  "package": "باقة اختبار",
+  "endDate": "{{extendedEndDate}}",
+  "rowVersion": "{{deactivateClient.response.body.$.rowVersion}}"
+}
+
+### OPTIONAL: upload a progress photo (requires Cloudinary; maximum 8 MiB)
+# Replace ./test-photo.jpg below with an existing JPEG file. Send raw bytes, not multipart data.
+# @name uploadPhoto
+POST {{apiUrl}}/me/check-ins/{{submitCheckIn.response.body.$.id}}/photos
+Authorization: Bearer {{clientLogin.response.body.$.accessToken}}
+Content-Type: image/jpeg
+
+< ./test-photo.jpg
+
+### OPTIONAL, DESTRUCTIVE: client removes the uploaded photo
+# Choose this OR the coach photo-deletion example; the second request would return 404.
+# @name clientDeletePhoto
+DELETE {{apiUrl}}/me/photos/{{uploadPhoto.response.body.$.id}}
+Authorization: Bearer {{clientLogin.response.body.$.accessToken}}
+Accept: application/json
+
+### OPTIONAL, DESTRUCTIVE: coach removes the uploaded photo
+# @name coachDeletePhoto
+DELETE {{apiUrl}}/coach/clients/{{clientAccount.response.body.$.account.id}}/photos/{{uploadPhoto.response.body.$.id}}
+Authorization: Bearer {{coachLogin.response.body.$.accessToken}}
+Accept: application/json
+
+### OPTIONAL: request a password-reset email (requires Resend and Jobs:Enabled=true)
+# The response is generic whether or not the email exists. Copy the email's token to passwordResetToken.
+# @name forgotPassword
+POST {{apiUrl}}/auth/forgot-password
+Content-Type: application/json
+X-Coaching-Client: Angular
+Origin: {{angularOrigin}}
+
+{
+  "email": "{{clientEmail}}"
+}
+
+### OPTIONAL: reset the password (invalidates existing client sessions)
+# After success, change clientPassword to newClientPassword and re-run clientLogin.
+# @name resetPassword
+POST {{apiUrl}}/auth/reset-password
+Content-Type: application/json
+X-Coaching-Client: Angular
+Origin: {{angularOrigin}}
+
+{
+  "email": "{{clientEmail}}",
+  "token": "{{passwordResetToken}}",
+  "password": "{{newClientPassword}}"
+}
+
+### OPTIONAL: rotate the client refresh cookie
+# Set clientRefreshCookie from clientLogin first; then update it from THIS response's Set-Cookie.
+# Reusing the old cookie intentionally revokes the whole family and returns 401.
+# @name refreshClient
+POST {{apiUrl}}/auth/refresh
+X-Coaching-Client: Angular
+Origin: {{angularOrigin}}
+Cookie: {{clientRefreshCookie}}
+Accept: application/json
+
+### OPTIONAL: log out the client's current refresh-token family
+# Set clientRefreshCookie to the MOST RECENT cookie, not a superseded cookie.
+# @name logoutClient
+POST {{apiUrl}}/auth/logout
+X-Coaching-Client: Angular
+Origin: {{angularOrigin}}
+Cookie: {{clientRefreshCookie}}
+Accept: application/json
+
+### OPTIONAL: archive the main exercise after all plan-building examples
+# @name archiveExercise
+PUT {{apiUrl}}/coach/exercises/{{createExercise.response.body.$.id}}
+Authorization: Bearer {{coachLogin.response.body.$.accessToken}}
+Content-Type: application/json
+
+{
+  "name": "ضغط الصدر - اختبار HTTP",
+  "muscleGroup": "الصدر",
+  "youTubeVideoId": "{{mainYouTubeVideoId}}",
+  "notes": "تمت الأرشفة",
+  "archived": true,
+  "rowVersion": "{{updateExercise.response.body.$.rowVersion}}"
+}
+
+### OPTIONAL: delete an in-use library exercise (expected 409; archive it instead)
+# @name deleteInUseExercise
+DELETE {{apiUrl}}/coach/exercises/{{createExercise.response.body.$.id}}
+Authorization: Bearer {{coachLogin.response.body.$.accessToken}}
+Content-Type: application/json
+
+{
+  "rowVersion": "{{archiveExercise.response.body.$.rowVersion}}"
+}
+
+### OPTIONAL: fresh account version before choosing ONE account-deletion request
+# Re-run clientLogin first if you reset the password or the access token expired.
+# @name accountBeforeDelete
+GET {{apiUrl}}/me
+Authorization: Bearer {{clientLogin.response.body.$.accessToken}}
+Accept: application/json
+
+### OPTIONAL, DESTRUCTIVE: client deletes their account and all personal records/photos
+# Use only the test client. Choose this OR the coach deletion request below.
+# @name clientDeleteAccount
+DELETE {{apiUrl}}/me
+Authorization: Bearer {{clientLogin.response.body.$.accessToken}}
+Content-Type: application/json
+
+{
+  "rowVersion": "{{accountBeforeDelete.response.body.$.account.rowVersion}}"
+}
+
+### OPTIONAL, DESTRUCTIVE: coach deletes the test client's account and personal records/photos
+# @name coachDeleteAccount
+DELETE {{apiUrl}}/coach/clients/{{clientAccount.response.body.$.account.id}}
+Authorization: Bearer {{coachLogin.response.body.$.accessToken}}
+Content-Type: application/json
+
+{
+  "rowVersion": "{{accountBeforeDelete.response.body.$.account.rowVersion}}"
+}
